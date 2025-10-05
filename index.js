@@ -261,8 +261,7 @@ async function startBot() {
 // Add other commands (.tagall, .antidelete, .save, etc.) similarly as earlier
 
 // Now handle commands that are triggered by text messages (we'll process below)
-
-} // <-- closes for-loop or main message block
+ // <-- closes for-loop or main message block
 catch (e) {
   console.error("messages.upsert store error:", e && e.message);
 }
