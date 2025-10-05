@@ -243,27 +243,31 @@ async function startBot() {
         await sock.sendMessage(from, { text: t, ...extra });
       };
 
-      if (cmd === ".vv") {
-        const doc = await SavedMsg.findOne({ chatId: from, isViewOnce: true }).sort({ timestamp: -1 });
-        if (!doc) return reply("No saved view-once media in this chat.");
-        let message = "🔓 Resending view-once as normal:\n\n";
-        if (doc.text) message += doc.text + "\n\n";
-        if (doc.mediaUrl) {
-          await sock.sendMessage(from, { text: message });
-          await sock.sendMessage(from, { image: { url: doc.mediaUrl } });
-        } else {
-          await reply(message);
-        }
-      }
+    if (cmd === ".vv") {
+  const doc = await SavedMsg.findOne({ chatId: from, isViewOnce: true }).sort({ timestamp: -1 });
+  if (!doc) return reply("No saved view-once media in this chat.");
 
-      // Add other commands (.tagall, .antidelete, .save, etc.) similarly as earlier
+  let message = "🔓 Resending view-once as normal:\n\n";
+  if (doc.text) message += doc.text + "\n\n";
 
-        // Now handle commands that are triggered by text messages (we'll process below)
-      }
-    } catch(e) {
-      console.error("messages.upsert store error", e && e.message);
-    }
-  });
+  if (doc.mediaUrl) {
+    await sock.sendMessage(from, { text: message });
+    await sock.sendMessage(from, { image: { url: doc.mediaUrl } });
+  } else {
+    await reply(message);
+  }
+}
+
+// Add other commands (.tagall, .antidelete, .save, etc.) similarly as earlier
+
+// Now handle commands that are triggered by text messages (we'll process below)
+
+} // <-- closes for-loop or main message block
+catch (e) {
+  console.error("messages.upsert store error:", e && e.message);
+}
+});
+
 
   // Handle deleted messages — WhatsApp sends protocolMessage with type 0
   sock.ev.on("messages.update", async (updates) => {
