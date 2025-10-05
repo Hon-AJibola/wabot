@@ -1,5 +1,3 @@
-Is this correct 
-
 
 // index.js
 // npm install express mongoose fs-extra axios mime-types cloudinary @aws-sdk/client-s3 @whiskeysockets/baileys qrcode-terminal
