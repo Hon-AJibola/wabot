@@ -640,16 +640,11 @@ Owner: .restart
     } catch (e) {
       console.error("command handler error", e && e.message);
     }
-  });
+  }); // closes sock.ev.on("messages.upsert")
 
   // Graceful exit
-  process.on("SIGINT", ()=> { console.log("SIGINT"); process.exit(0); });
-  process.on("SIGTERM", ()=> { console.log("SIGTERM"); process.exit(0); });
-}
-
-      // ... (you’ll paste your full command block here, but use mediaUrl instead of local path)
-    }
-  });
+  process.on("SIGINT", () => { console.log("SIGINT"); process.exit(0); });
+  process.on("SIGTERM", () => { console.log("SIGTERM"); process.exit(0); });
 }
 
 startBot();
