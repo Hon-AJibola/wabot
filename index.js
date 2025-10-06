@@ -365,4 +365,30 @@ Owner: .restart
   // ...other event handlers and logic...
 }
 
-startBot(); // Start the bot
+startBot(import { io } from "socket.io-client";
+
+const socket = io(`http://localhost:${process.env.WEB_PORT || 3000}`);
+
+async function startBot(phone, method) {
+  const { state, saveCreds } = await useMultiFileAuthState("./auth_info");
+
+  const sock = makeWASocket({
+    auth: state,
+    printQRInTerminal: false,
+    browser: ["RenderBot", "Chrome", "1.0.0"]
+  });
+
+  if (method === "pairing") {
+    try {
+      const code = await sock.requestPairingCode(phone);
+      socket.emit("botEvent", { code });
+    } catch (err) {
+      socket.emit("botEvent", { msg: "❌ Failed to generate pairing code" });
+    }
+  } else if (method === "qr") {
+    sock.ev.on("connection.update", ({ qr }) => {
+      if(qr) socket.emit("botEvent", { qr });
+    });
+  }
+}
+); // Start the bot
