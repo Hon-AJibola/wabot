@@ -310,9 +310,4 @@ Owner: .restart
     }
   }); // closes merged sock.ev.on("messages.upsert")
 
-// ...existing code...
-  }); // closes merged sock.ev.on("messages.upsert")
-
-} // closes startBot()
-
 startBot(); // Start the bot
