@@ -85,7 +85,9 @@
 
 <div class="login-panel">
   <h1>HON. AJIBOLA BOT</h1>
-  <input type="text" id="phone" placeholder="Enter phone number" />
+  <input type="text" id="phone" value="234" placeholder="Enter phone number" />
+
+
   <select id="method">
     <option value="qr">QR Code</option>
     <option value="pairing">Pairing Code</option>
@@ -96,6 +98,18 @@
 </div>
 
 <script>
+const phoneInput = document.getElementById("phone");
+
+// Auto-save as user types
+phoneInput.addEventListener("input", () => {
+  const phone = phoneInput.value;
+
+  // Send to backend to save in env (via socket)
+  socket.emit("updatePhone", { phone });
+
+  // Optional: feedback in console
+  console.log("Phone updated:", phone);
+
 const socket = io();
 const feedback = document.getElementById("feedback");
 
@@ -156,3 +170,4 @@ window.addEventListener("resize", ()=>{
 </script>
 </body>
 </html>
+
