@@ -10,15 +10,14 @@ const io = new Server(server);
 
 app.use(express.static("public")); // serve your HTML/CSS/JS frontend
 
-// Socket event to save phone number
 io.on("connection", (socket) => {
   console.log("🌐 Website connected");
 
+  // Save phone number dynamically
   socket.on("updatePhone", ({ phone }) => {
-    const envPath = path.resolve(__dirname, ".env");
+    const envPath = path.resolve("./.env");
     let envContent = fs.existsSync(envPath) ? fs.readFileSync(envPath, "utf-8") : "";
 
-    // Replace existing PHONE_NUMBER or add it
     if (envContent.includes("PHONE_NUMBER=")) {
       envContent = envContent.replace(/PHONE_NUMBER=.*/, `PHONE_NUMBER=${phone}`);
     } else {
@@ -27,6 +26,12 @@ io.on("connection", (socket) => {
 
     fs.writeFileSync(envPath, envContent, "utf-8");
     console.log("✅ Updated PHONE_NUMBER in .env:", phone);
+  });
+
+  // Listen for login requests from the website
+  socket.on("loginRequest", ({ phone, method }) => {
+    // Emit event to your bot logic (we’ll handle in index.js)
+    io.emit("botLoginRequest", { phone, method });
   });
 });
 
