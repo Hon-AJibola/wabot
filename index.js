@@ -1,9 +1,29 @@
 // --- START OF MERGED HANDLER ---
-// ...existing code...
 
-  // Save messages and commands handler (merged logic)
-  
-// ...existing code...
+import makeWASocket, {
+  useMultiFileAuthState,
+  DisconnectReason,
+  fetchLatestBaileysVersion,
+  makeCacheableSignalKeyStore,
+  makeInMemoryStore
+} from "@whiskeysockets/baileys";
+
+import P from "pino";
+import dotenv from "dotenv";
+import mongoose from "mongoose";
+import axios from "axios";
+import fs from "fs";
+import cloudinary from "cloudinary";
+
+dotenv.config();
+
+cloudinary.v2.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
+
+
 
 async function startBot() {
   const { state, saveCreds } = await useMultiFileAuthState("./auth_info");
