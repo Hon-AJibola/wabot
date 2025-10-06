@@ -1,6 +1,7 @@
 {
   "name": "hon-ajibola-bot",
   "version": "1.0.0",
+  "type": "module",
   "description": "A WhatsApp bot built by Hon. Ajibola using Baileys + Cloudinary + S3 + MongoDB",
   "main": "index.js",
   "scripts": {
