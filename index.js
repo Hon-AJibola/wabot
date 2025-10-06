@@ -642,24 +642,22 @@ Owner: .restart
     }
   }); // closes sock.ev.on("messages.upsert")
 
-          // --- .sticker (reply to image) ---
-        if (cmd === ".sticker") {
-          if (!quoted || !quoted.imageMessage) return reply("⚠️ Reply to an image with .sticker");
-          try {
-            const stream = await downloadContentFromMessage(quoted.imageMessage, "image");
-            const bufferArray = [];
-            for await (const chunk of stream) bufferArray.push(chunk);
-            const buffer = Buffer.concat(bufferArray);
+     // --- .sticker (reply to image) ---
+if (cmd === ".sticker") {
+  if (!quoted || !quoted.imageMessage) return reply("⚠️ Reply to an image with .sticker");
+  try {
+    const stream = await downloadContentFromMessage(quoted.imageMessage, "image");
+    const bufferArray = [];
+    for await (const chunk of stream) bufferArray.push(chunk);
+    const buffer = Buffer.concat(bufferArray);
 
-            await sock.sendMessage(from, { sticker: buffer });
-            await reply("✅ Sticker created successfully!");
-          } catch (e) {
-            console.error(".sticker error:", e.message);
-            await reply("❌ Failed to create sticker.");
-          }
-        }
-
-      } // closes for loop
+    await sock.sendMessage(from, { sticker: buffer });
+    await reply("✅ Sticker created successfully!");
+  } catch (e) {
+    console.error(".sticker error:", e.message);
+    await reply("❌ Failed to create sticker.");
+  }
+}
     } catch (e) {
       console.error("command handler error", e && e.message);
     }
