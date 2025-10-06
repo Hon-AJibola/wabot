@@ -4,36 +4,154 @@
 <meta charset="UTF-8">
 <title>WhatsApp Bot Login</title>
 <script src="/socket.io/socket.io.js"></script>
+<style>
+  /* --- Body + Background --- */
+  body, html {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    font-family: "Courier New", monospace;
+    overflow: hidden;
+    background: black;
+    color: #0f0;
+  }
+
+  /* --- Matrix Code Rain Animation --- */
+  canvas#matrix {
+    position: fixed;
+    top: 0;
+    left: 0;
+    z-index: 0;
+  }
+
+  /* --- Login Panel --- */
+  .login-panel {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: rgba(0, 0, 0, 0.8);
+    border: 2px solid #0f0;
+    padding: 40px;
+    text-align: center;
+    border-radius: 15px;
+    z-index: 10;
+    width: 320px;
+  }
+
+  .login-panel h1 {
+    margin-bottom: 20px;
+    font-size: 22px;
+    text-shadow: 0 0 5px #0f0;
+  }
+
+  .login-panel input, .login-panel select, .login-panel button {
+    width: 90%;
+    padding: 10px;
+    margin: 10px 0;
+    border: none;
+    border-radius: 8px;
+    font-size: 16px;
+  }
+
+  .login-panel input, .login-panel select {
+    background: #111;
+    color: #0f0;
+  }
+
+  .login-panel button {
+    background: #0f0;
+    color: #000;
+    font-weight: bold;
+    cursor: pointer;
+    transition: 0.3s;
+  }
+
+  .login-panel button:hover {
+    background: #00ff00cc;
+  }
+
+  #feedback {
+    margin-top: 15px;
+    font-size: 16px;
+    word-wrap: break-word;
+  }
+</style>
 </head>
 <body>
-<h1>Bot Login</h1>
-<input type="text" id="phone" placeholder="Enter phone number" />
-<select id="method">
-  <option value="qr">QR Code</option>
-  <option value="pairing">Pairing Code</option>
-</select>
-<button onclick="login()">Login</button>
 
-<div id="feedback"></div>
+<canvas id="matrix"></canvas>
+
+<div class="login-panel">
+  <h1>HON. AJIBOLA BOT</h1>
+  <input type="text" id="phone" placeholder="Enter phone number" />
+  <select id="method">
+    <option value="qr">QR Code</option>
+    <option value="pairing">Pairing Code</option>
+  </select>
+  <button onclick="login()">Login</button>
+
+  <div id="feedback"></div>
+</div>
 
 <script>
 const socket = io();
+const feedback = document.getElementById("feedback");
 
 function login() {
   const phone = document.getElementById("phone").value;
   const method = document.getElementById("method").value;
+  feedback.textContent = "Connecting to bot...";
   socket.emit("loginRequest", { phone, method });
 }
 
 socket.on("botEvent", data => {
-  const fb = document.getElementById("feedback");
   if(data.qr){
-    fb.innerHTML = `<img src="${data.qr}" alt="QR Code" />`;
+    feedback.innerHTML = `<img src="${data.qr}" alt="QR Code" style="width:200px;margin-top:10px;" />`;
   } else if(data.code){
-    fb.textContent = `Pairing Code: ${data.code}`;
+    feedback.textContent = `Pairing Code: ${data.code}`;
   } else if(data.msg){
-    fb.textContent = data.msg;
+    feedback.textContent = data.msg;
   }
+});
+
+/* --- MATRIX CODE RAIN --- */
+const canvas = document.getElementById("matrix");
+const ctx = canvas.getContext("2d");
+
+canvas.width = window.innerWidth;
+canvas.height = window.innerHeight;
+
+const letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789@$%^&*()_+=-[]{}|;:,.<>/?";
+const fontSize = 16;
+const columns = canvas.width / fontSize;
+const drops = [];
+
+for(let x=0; x<columns; x++){
+  drops[x] = Math.random() * canvas.height;
+}
+
+function draw(){
+  ctx.fillStyle = "rgba(0, 0, 0, 0.05)";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  
+  ctx.fillStyle = "#0f0";
+  ctx.font = fontSize + "px monospace";
+
+  for(let i=0; i<drops.length; i++){
+    const text = letters.charAt(Math.floor(Math.random() * letters.length));
+    ctx.fillText(text, i*fontSize, drops[i]);
+    drops[i] -= fontSize;
+    if(drops[i] < 0) drops[i] = canvas.height + Math.random() * 1000;
+  }
+}
+
+setInterval(draw, 50);
+
+window.addEventListener("resize", ()=>{
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
 });
 </script>
 </body>
