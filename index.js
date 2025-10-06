@@ -4,7 +4,7 @@ import makeWASocket, {
   useMultiFileAuthState,
   DisconnectReason,
   fetchLatestBaileysVersion,
-  makeCacheableSignalKeyStore
+  makeCacheableSignalKeyStore,
 } from "@whiskeysockets/baileys";
 
 import P from "pino";
@@ -28,9 +28,30 @@ async function startBot() {
   const { state, saveCreds } = await useMultiFileAuthState("./auth_info");
   const sock = makeWASocket({
     auth: state,
-    printQRInTerminal: !USE_PAIRING_CODE,
     browser: ["Hon. Ajibola Bot", "Chrome", "10.0.0"]
   });
+
+  const PHONE_NUMBER = process.env.PHONE_NUMBER;
+
+if (!PHONE_NUMBER) {
+  console.error("❌ PHONE_NUMBER not set in environment variables.");
+  process.exit(1);
+}
+
+// Auto-pairing for Render
+if (!state.creds?.me?.id) {
+  try {
+    console.log(`📱 Requesting new pairing code for ${PHONE_NUMBER}...`);
+    const code = await sock.requestPairingCode(PHONE_NUMBER);
+    console.log(`✅ Pairing code for ${PHONE_NUMBER}: ${code}`);
+    console.log("Use this in WhatsApp → Linked Devices → Link with phone number");
+  } catch (err) {
+    console.error("❌ Failed to get pairing code:", err);
+  }
+} else {
+  console.log(`✅ Already logged in as ${state.creds.me.id}`);
+}
+
 
   // Place merged handler here, after sock is defined
   sock.ev.on("messages.upsert", async ({ messages }) => {
