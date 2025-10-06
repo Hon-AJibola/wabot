@@ -1,375 +1,79 @@
+// --- START OF MERGED HANDLER ---
+// ...existing code...
 
-// index.js
-// npm install express mongoose fs-extra axios mime-types cloudinary @aws-sdk/client-s3 @whiskeysockets/baileys qrcode-terminal
-
-const express = require("express");
-const fs = require("fs-extra");
-const path = require("path");
-const mongoose = require("mongoose");
-const axios = require("axios");
-const mime = require("mime-types");
-const qrcode = require("qrcode-terminal");
-
-const { S3Client, PutObjectCommand } = require("@aws-sdk/client-s3");
-const cloudinary = require("cloudinary").v2;
-
-const {
-  default: makeWASocket,
-  useMultiFileAuthState,
-  DisconnectReason,
-  downloadContentFromMessage,
-  jidNormalizedUser
-} = require("@whiskeysockets/baileys");
-
-// ---------- CONFIG ----------
-const USE_PAIRING_CODE = (process.env.USE_PAIRING_CODE === "true") || false;
-const PHONE_NUMBER = process.env.PHONE_NUMBER || "2349050704741";
-const OWNER_NUMBER = process.env.OWNER_NUMBER || `${PHONE_NUMBER}@s.whatsapp.net`;
-const MONGO_URI = process.env.MONGO_URI || "mongodb://localhost:27017/hon_ajibola_bot";
-const PORT = process.env.PORT || 3000;
-
-// Cloudinary config
-cloudinary.config({
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME || "",
-  api_key: process.env.CLOUDINARY_API_KEY || "",
-  api_secret: process.env.CLOUDINARY_API_SECRET || ""
-});
-
-// S3 client config
-const s3 = new S3Client({
-  region: process.env.AWS_REGION,
-  credentials: {
-    accessKeyId: process.env.AWS_ACCESS_KEY_ID,
-    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY
-  }
-});
-const S3_BUCKET = process.env.S3_BUCKET_NAME;
-
-// Ensure local media folder (for fallback or temporary)
-fs.ensureDirSync("./db/media");
-
-// ---------- Mongo Models ----------
-mongoose.connect(MONGO_URI, { useNewUrlParser: true, useUnifiedTopology: true })
-  .then(() => console.log("✅ MongoDB connected"))
-  .catch(e => console.error("❌ MongoDB connection error:", e && e.message));
-
-const AntideleteSchema = new mongoose.Schema({
-  chatId: { type: String, unique: true }
-});
-const SavedMsgSchema = new mongoose.Schema({
-  messageId: { type: String, unique: true },
-  chatId: String,
-  sender: String,
-  timestamp: Number,
-  text: String,
-  mediaUrl: String,   // URL in Cloudinary or S3
-  mime: String,
-  isViewOnce: Boolean
-});
-
-const Antidelete = mongoose.model("Antidelete", AntideleteSchema);
-const SavedMsg = mongoose.model("SavedMsg", SavedMsgSchema);
-
-// ---------- Express Keep-Alive ----------
-const app = express();
-app.get("/", (req, res) => {
-  res.send("🔥 Hon. Ajibola Bot is online and unstoppable 💥");
-});
-app.listen(PORT, () => console.log(`🌍 Server active on port ${PORT}`));
-
-// ---------- Helpers: upload to Cloudinary or S3 ----------
-
-async function uploadToCloudinary(buffer, mimeType) {
-  try {
-    const upload = await cloudinary.uploader.upload_stream({
-      resource_type: "auto",
-      folder: "whatsapp_media"
-    }, (error, result) => {
-      if (error) throw error;
-      return result;
-    });
-    // But upload_stream returns a stream function, so we pipe
-    const stream = cloudinary.uploader.upload_stream({ resource_type: "auto", folder: "whatsapp_media" }, (error, result) => {
-      if (error) console.error("Cloudinary upload error:", error);
-      // result.secure_url is the URL
-    });
-    // Actually better: use upload method with base64 or buffer
-    const result = await cloudinary.uploader.upload(`data:${mimeType};base64,${buffer.toString('base64')}`, {
-      resource_type: "auto",
-      folder: "whatsapp_media"
-    });
-    return result.secure_url;
-  } catch (e) {
-    console.error("uploadToCloudinary error:", e && e.message);
-    return null;
-  }
-}
-
-async function uploadToS3(buffer, keyName, mimeType) {
-  try {
-    const cmd = new PutObjectCommand({
-      Bucket: S3_BUCKET,
-      Key: keyName,
-      Body: buffer,
-      ContentType: mimeType
-    });
-    await s3.send(cmd);
-    // Return the public URL (depends on your bucket policy)
-    const url = `https://${S3_BUCKET}.s3.${process.env.AWS_REGION}.amazonaws.com/${keyName}`;
-    return url;
-  } catch (e) {
-    console.error("uploadToS3 error:", e && e.message);
-    return null;
-  }
-}
-
-// Download media from message and upload to your cloud storage
-async function cloudSaveMedia(mediaObj) {
-  try {
-    const stream = await downloadContentFromMessage(mediaObj, mediaObj.mimetype || mediaObj.type || "binary");
-    const chunks = [];
-    for await (const c of stream) chunks.push(c);
-    const buffer = Buffer.concat(chunks);
-    const mimeType = mediaObj.mimetype || mediaObj.type || null;
-
-    // Choose one:
-    const cloudUrl = await uploadToCloudinary(buffer, mimeType);
-    if (cloudUrl) return cloudUrl;
-
-    // fallback to S3
-    const keyName = `whatsapp_media/${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-    const s3Url = await uploadToS3(buffer, keyName, mimeType);
-    return s3Url;
-  } catch (e) {
-    console.error("cloudSaveMedia error:", e && e.message);
-    return null;
-  }
-}
-
-// ---------- Start Bot ----------
-async function startBot() {
-  const { state, saveCreds } = await useMultiFileAuthState("./auth_info");
-  const sock = makeWASocket({
-    auth: state,
-    printQRInTerminal: !USE_PAIRING_CODE,
-    browser: ["Hon. Ajibola Bot", "Chrome", "10.0.0"]
-  });
-
-  sock.ev.on("connection.update", async (u) => {
-    const { connection, lastDisconnect, qr } = u;
-    if (!USE_PAIRING_CODE && qr) {
-      console.log("\n📱 Scan QR below:\n");
-      qrcode.generate(qr, { small: true });
-    }
-    if (USE_PAIRING_CODE && qr && !state.creds.registered) {
-      try {
-        const code = await sock.requestPairingCode(PHONE_NUMBER);
-        console.log("🔐 Pairing code:", code);
-      } catch (e) { console.error(e); }
-    }
-    if (connection === "open") {
-      console.log("✅ Connected");
-      try { await sock.sendMessage(OWNER_NUMBER, { text: "✅ Hon. Ajibola Bot connected (cloud storage enabled)" }); } catch {}
-    }
-    if (connection === "close") {
-      const reason = lastDisconnect?.error?.output?.statusCode;
-      if (reason !== DisconnectReason.loggedOut) {
-        console.log("⚠️ Reconnect...");
-        startBot();
-      } else {
-        console.log("🚫 Logged out");
-        try { await sock.sendMessage(OWNER_NUMBER, { text: "🚫 Bot logged out — require re-auth." }); } catch {}
-      }
-    }
-  });
-
-  sock.ev.on("creds.update", saveCreds);
-
-  const startTime = Date.now();
-
-  // Save messages and commands handler
-  sock.ev.on("messages.upsert", async ({ messages }) => {
-    for (const raw of messages) {
-      if (!raw.message) continue;
-      // unwrap viewOnce / ephemeral
-      let messageContent = raw.message;
-      if (messageContent.viewOnceMessage) messageContent = messageContent.viewOnceMessage.message;
-      if (messageContent.ephemeralMessage) messageContent = messageContent.ephemeralMessage.message;
-
-      const key = raw.key;
-      const from = key.remoteJid;
-      const sender = key.participant || key.remoteJid;
-      const msgId = key.id;
-      const timestamp = raw.messageTimestamp || Date.now();
-      let body = messageContent.conversation || messageContent.extendedTextMessage?.text || "";
-      if (messageContent.imageMessage?.caption) body = messageContent.imageMessage.caption;
-      if (messageContent.videoMessage?.caption) body = messageContent.videoMessage.caption;
-
-      // Save message if media or text
-      let mediaUrl = null;
-      if (messageContent.imageMessage || messageContent.videoMessage || messageContent.documentMessage || messageContent.audioMessage) {
-        const mediaObj = messageContent.imageMessage || messageContent.videoMessage || messageContent.documentMessage || messageContent.audioMessage;
-        mediaUrl = await cloudSaveMedia(mediaObj);
-      }
-
-sock.ev.on("messages.upsert", async (mek) => {
-  try {
-    for (const msg of mek.messages) {
-      if (!msg.message) continue;
-
-      const from = msg.key.remoteJid;
-      const msgId = msg.key.id;
-      const sender = msg.key.participant || msg.key.remoteJid;
-      const body =
-        msg.message.conversation ||
-        msg.message.extendedTextMessage?.text ||
-        "";
-
-      const mediaObj = msg.message.imageMessage || msg.message.videoMessage || null;
-      let mediaUrl = null;
-
-      if (mediaObj) {
-        const buffer = await downloadMediaMessage(msg, "buffer", {});
-        const upload = await cloudinary.uploader.upload_stream({
-          folder: "wa-bot",
-          resource_type: "auto"
-        });
-
-        upload.end(buffer);
-        const result = await new Promise((resolve, reject) => {
-          upload.on("finish", resolve);
-          upload.on("error", reject);
-        });
-
-        mediaUrl = result.secure_url;
-      }
-
-      // 🧠 Save the message
-      if ((body && body.trim()) || mediaUrl) {
-        try {
-          await SavedMsg.findOneAndUpdate(
-            { messageId: msgId },
-            {
-              messageId: msgId,
-              chatId: from,
-              sender,
-              timestamp: Date.now(),
-              text: body || "",
-              mediaUrl,
-              mime: mediaObj?.mimetype || null,
-              isViewOnce: !!msg.message.viewOnceMessage
-            },
-            { upsert: true }
-          );
-        } catch (e) {
-          console.error("SavedMsg save error:", e.message);
-        }
-      }
-
-      // 🔥 Command Logic
-      const txt = body.trim();
-      const cmd = txt.split(" ")[0].toLowerCase();
-      const args = txt.split(" ").slice(1);
-
-      const reply = async (t, extra = {}) => {
-        await sock.sendMessage(from, { text: t, ...extra });
-      };
-
-      // ✅ Handle Commands
-      if (cmd === ".vv") {
-        const doc = await SavedMsg.findOne({ chatId: from, isViewOnce: true }).sort({ timestamp: -1 });
-        if (!doc) return reply("No saved view-once media in this chat.");
-
-        let message = "🔓 Resending view-once as normal:\n\n";
-        if (doc.text) message += doc.text + "\n\n";
-
-        if (doc.mediaUrl) {
-          await sock.sendMessage(from, { text: message });
-          await sock.sendMessage(from, { image: { url: doc.mediaUrl } });
-        } else {
-          await reply(message);
-        }
-      }
-
-      // ✅ other commands go here
-    } // closes for-loop
-
-  } catch (e) {
-    console.error("messages.upsert store error:", e.message);
-  }
-}); // closes event listener
-
-  // Handle deleted messages — WhatsApp sends protocolMessage with type 0
-  sock.ev.on("messages.update", async (updates) => {
-    try {
-      for (const u of updates) {
-        if (u.message && u.message.protocolMessage && u.message.protocolMessage.type === 0) {
-          const deletedKey = u.message.protocolMessage.key;
-          const deletedId = deletedKey?.id;
-          const deletedChat = deletedKey?.remoteJid;
-          const whoDeleted = deletedKey?.participant || deletedKey?.remoteJid;
-
-          // Check if this chat has antidelete enabled
-          const found = await Antidelete.findOne({ chatId: deletedChat });
-          if (!found) continue;
-
-          // Get the saved message
-          const saved = await SavedMsg.findOne({ messageId: deletedId });
-          if (!saved) continue;
-
-          let resendText = `📌 Message deleted by @${(whoDeleted||'unknown').split('@')[0]} — restoring below:\n\n`;
-          if (saved.text) resendText += saved.text + "\n\n";
-          try {
-            // Mention the deleter
-            const mentioned = [whoDeleted];
-            if (saved.mediaPath) {
-              const buffer = await fs.readFile(saved.mediaPath);
-              await sock.sendMessage(deletedChat, { text: resendText, contextInfo: { mentionedJid: mentioned } });
-              await sock.sendMessage(deletedChat, { 
-                [saved.mime && saved.mime.startsWith('image') ? 'image' : saved.mime && saved.mime.startsWith('video') ? 'video' : 'document']: buffer,
-                mimetype: saved.mime || undefined,
-                fileName: path.basename(saved.mediaPath),
-                contextInfo: { mentionedJid: mentioned }
-              });
-            } else {
-              await sock.sendMessage(deletedChat, { text: resendText, contextInfo: { mentionedJid: mentioned } });
-            }
-          } catch (e) {
-            console.error("resend deleted error", e && e.message);
-          }
-        }
-      }
-    } catch (e) {
-      console.error("messages.update error", e && e.message);
-    }
-  });
-
-  // ========= Commands handler (single pass) =========
+  // Save messages and commands handler (merged logic)
   sock.ev.on("messages.upsert", async ({ messages }) => {
     try {
       for (const raw of messages) {
         if (!raw.message) continue;
-
+        // unwrap viewOnce / ephemeral
         let messageContent = raw.message;
         let isViewOnce = false;
         if (messageContent.viewOnceMessage) { isViewOnce = true; messageContent = messageContent.viewOnceMessage.message; }
-        if (messageContent?.ephemeralMessage) messageContent = messageContent.ephemeralMessage.message;
+        if (messageContent.ephemeralMessage) messageContent = messageContent.ephemeralMessage.message;
 
         const key = raw.key;
         const from = key.remoteJid;
         const sender = key.participant || key.remoteJid;
-        const fromMe = key.fromMe || false;
-        const quoted = messageContent.extendedTextMessage?.contextInfo?.quotedMessage;
-        const body = (messageContent.conversation || messageContent.extendedTextMessage?.text || messageContent.imageMessage?.caption || "").trim();
-        if (!body) continue;
+        const msgId = key.id;
+        const timestamp = raw.messageTimestamp || Date.now();
+        let body = messageContent.conversation || messageContent.extendedTextMessage?.text || "";
+        if (messageContent.imageMessage?.caption) body = messageContent.imageMessage.caption;
+        if (messageContent.videoMessage?.caption) body = messageContent.videoMessage.caption;
+        body = body.trim();
 
+        // Save message if media or text
+        let mediaUrl = null;
+        let mediaObj = messageContent.imageMessage || messageContent.videoMessage || messageContent.documentMessage || messageContent.audioMessage || null;
+        if (mediaObj) {
+          mediaUrl = await cloudSaveMedia(mediaObj);
+        }
+
+        // 🧠 Save the message
+        if ((body && body.trim()) || mediaUrl) {
+          try {
+            await SavedMsg.findOneAndUpdate(
+              { messageId: msgId },
+              {
+                messageId: msgId,
+                chatId: from,
+                sender,
+                timestamp: Date.now(),
+                text: body || "",
+                mediaUrl,
+                mime: mediaObj?.mimetype || null,
+                isViewOnce
+              },
+              { upsert: true }
+            );
+          } catch (e) {
+            console.error("SavedMsg save error:", e.message);
+          }
+        }
+
+        // 🔥 Command Logic
         const cmd = body.split(" ")[0].toLowerCase();
         const args = body.split(" ").slice(1);
 
-        // --- Helper to reply ---
-        const reply = async (text, extra = {}) => {
-          await sock.sendMessage(from, { text, ...extra });
+        const reply = async (t, extra = {}) => {
+          await sock.sendMessage(from, { text: t, ...extra });
         };
+
+        // ✅ Handle Commands
+        if (cmd === ".vv") {
+          const doc = await SavedMsg.findOne({ chatId: from, isViewOnce: true }).sort({ timestamp: -1 });
+          if (!doc) return reply("No saved view-once media in this chat.");
+
+          let message = "🔓 Resending view-once as normal:\n\n";
+          if (doc.text) message += doc.text + "\n\n";
+
+          if (doc.mediaUrl) {
+            await sock.sendMessage(from, { text: message });
+            await sock.sendMessage(from, { image: { url: doc.mediaUrl } });
+          } else {
+            await reply(message);
+          }
+        }
 
         // --- .tagall ---
         if (cmd === ".tagall") {
@@ -378,7 +82,6 @@ sock.ev.on("messages.upsert", async (mek) => {
           if (!metadata) return reply("⚠️ Unable to fetch group metadata.");
           const participants = metadata.participants;
           const mentions = participants.map(p => p.id);
-          // Build message
           let message = `
 ➤➤➤➤➤➤➤➤➤➤➤➤➤➤➤➤➤➤➤
 ╭──────────────────────────────╮
@@ -391,7 +94,6 @@ sock.ev.on("messages.upsert", async (mek) => {
 ╰──────────────────────────────╯
 ➤➤➤➤➤➤➤➤➤➤➤➤➤➤➤➤➤➤➤
 `;
-          // chunk mentions to avoid huge payloads
           const chunkSize = 20;
           for (let i=0;i<mentions.length;i+=chunkSize){
             const chunk = mentions.slice(i,i+chunkSize);
@@ -428,10 +130,10 @@ Owner: .restart
         }
 
         // --- .save (reply to a message / status) ---
+        const quoted = messageContent.extendedTextMessage?.contextInfo?.quotedMessage;
         if (cmd === ".save") {
           if (!quoted) return reply("⚠️ Reply to the message you want to save with `.save`.");
           const qmsg = quoted;
-          // try to download media if any
           let savedPath = null;
           let savedText = qmsg?.conversation || qmsg?.extendedTextMessage?.text || qmsg?.imageMessage?.caption || "";
           try {
@@ -440,7 +142,6 @@ Owner: .restart
               const saved = await downloadAndSave(mediaObj);
               if (saved) savedPath = saved;
             }
-            // Send copy to owner
             await sock.sendMessage(OWNER_NUMBER, { text: `💾 Saved from ${sender} in ${from}` });
             if (savedText) await sock.sendMessage(OWNER_NUMBER, { text: savedText });
             if (savedPath) {
@@ -476,27 +177,6 @@ Owner: .restart
           }
         }
 
-        // --- .vv resend last view-once in chat ---
-        if (cmd === ".vv") {
-          const doc = await SavedMsg.findOne({ chatId: from, isViewOnce: true }).sort({ timestamp: -1 });
-          if (!doc) return reply("⚠️ No saved view-once found in this chat.");
-          let text = "🔓 Resending saved view-once as normal:\n\n";
-          if (doc.text) text += doc.text + "\n\n";
-          try {
-            if (doc.mediaPath) {
-              const buffer = await fs.readFile(doc.mediaPath);
-              await sock.sendMessage(from, { text });
-              const sendObj = {};
-              if (mime.lookup(doc.mediaPath)?.startsWith("image")) sendObj.image = buffer;
-              else if (mime.lookup(doc.mediaPath)?.startsWith("video")) sendObj.video = buffer;
-              else sendObj.document = buffer;
-              await sock.sendMessage(from, sendObj);
-            } else {
-              await reply(text);
-            }
-          } catch (e) { console.error(".vv error", e && e.message); await reply("❌ Failed to resend view-once."); }
-        }
-
         // --- .quote random ---
         if (cmd === ".quote") {
           try {
@@ -519,14 +199,12 @@ Owner: .restart
           if (!ttsText) return reply("Usage: .tts <text>");
           try {
             const url = `https://api.streamelements.com/kappa/v2/speech?voice=en-GB&text=${encodeURIComponent(ttsText)}`;
-            // send as voice note
             await sock.sendMessage(from, { audio: { url }, mimetype: "audio/mp4" , ptt: true });
           } catch (e) { console.error("tts error", e && e.message); await reply("❌ TTS failed."); }
         }
 
         // --- .sticker (reply to image) ---
         if (cmd === ".sticker") {
-          // check quoted message for image or image in message
           const target = messageContent.extendedTextMessage?.contextInfo?.quotedMessage || messageContent;
           const imageMsg = target.imageMessage;
           if (!imageMsg) return reply("⚠️ Reply to an image with .sticker or send an image and type .sticker.");
@@ -563,7 +241,6 @@ Owner: .restart
         if (cmd === ".antilink") {
           const action = args[0]?.toLowerCase();
           if (!from.endsWith("@g.us")) return reply("⚠️ Group only.");
-          // store in Mongo as antidelete? Here we use Antidelete collection for simplicity: antidelete=antilink (not ideal)
           if (action === "on") {
             await Antidelete.findOneAndUpdate({ chatId: `antilink:${from}` }, { chatId: `antilink:${from}` }, { upsert: true });
             await reply("✅ Anti-link enabled for this group.");
@@ -581,10 +258,8 @@ Owner: .restart
           if (hasAntiLink) {
             const urlRegex = /(https?:\/\/[^\s]+)/gi;
             if (urlRegex.test(body) || body.includes("wa.me/") || body.includes("chat.whatsapp.com/")) {
-              // delete message (if bot has permissions)
               try {
                 await sock.sendMessage(from, { text: `⚠️ Link detected and removed.` });
-                // Baileys doesn't provide a direct delete for arbitrary messages unless using group modification; but you can send a request to delete if you have key id — we don't have it here; skip delete and warn
               } catch(e) { console.error("antilink warn error", e && e.message); }
             }
           }
@@ -609,7 +284,6 @@ Owner: .restart
           if (!from.endsWith("@g.us")) return reply("⚠️ Use in group.");
           const meta = await sock.groupMetadata(from);
           const toKick = meta.participants.filter(p => !p.admin && p.id !== OWNER_NUMBER).map(p => p.id);
-          // kick in batches
           for (const t of toKick) {
             try { await sock.groupParticipantsUpdate(from, [t], "remove"); } catch (e) { console.error("kick error", e && e.message); }
             await new Promise(r=>setTimeout(r,800));
@@ -617,56 +291,28 @@ Owner: .restart
           await reply("✅ Non-admin members kicked (attempted).");
         }
 
-        // === Ability to send in announcement-only groups (admin-only setting)
-        // You cannot bypass WhatsApp rules. If group is set to "only admins can send", then the bot can send only if the BOT account is an admin.
-        // We check and warn.
+        // Announcement-only group check
+        const fromMe = key.fromMe || false;
         if (!fromMe && from.endsWith("@g.us")) {
           const meta = await sock.groupMetadata(from);
           if (meta.announce) {
-            // announce = true means group is announcement-only
-            // Check if bot is admin
             const botId = sock.user?.id?.split(':')[0] ? sock.user.id.split(':')[0]+"@s.whatsapp.net" : null;
             const botParticipant = meta.participants.find(p => p.id && p.id.includes(botId?.split('@')[0]));
             const isBotAdmin = botParticipant?.admin;
             if (!isBotAdmin) {
-              // if bot sees someone send a message, it's allowed because sender is admin — but for our feature "send even if you're not admin", impossible without bot being admin.
-              // So we just log/warn owner if bot isn't admin.
-              // No automatic bypass possible.
+              // No bypass possible, just warn/log
             }
           }
         }
-
       } // end for messages
     } catch (e) {
       console.error("command handler error", e && e.message);
     }
-  }); // closes sock.ev.on("messages.upsert")
+  }); // closes merged sock.ev.on("messages.upsert")
 
-     // --- .sticker (reply to image) ---
-if (cmd === ".sticker") {
-  if (!quoted || !quoted.imageMessage) return reply("⚠️ Reply to an image with .sticker");
-  try {
-    const stream = await downloadContentFromMessage(quoted.imageMessage, "image");
-    const bufferArray = [];
-    for await (const chunk of stream) bufferArray.push(chunk);
-    const buffer = Buffer.concat(bufferArray);
+// ...existing code...
+  }); // closes merged sock.ev.on("messages.upsert")
 
-    await sock.sendMessage(from, { sticker: buffer });
-    await reply("✅ Sticker created successfully!");
-  } catch (e) {
-    console.error(".sticker error:", e.message);
-    await reply("❌ Failed to create sticker.");
-  }
-}
-    } catch (e) {
-      console.error("command handler error", e && e.message);
-    }
-  }); // closes sock.ev.on("messages.upsert")
+} // closes startBot()
 
-  // Graceful exit — makes sure bot shuts down cleanly
-  process.on("SIGINT", () => { console.log("SIGINT detected. Exiting..."); process.exit(0); });
-  process.on("SIGTERM", () => { console.log("SIGTERM detected. Exiting..."); process.exit(0); });
-
-} // closes startBot function
-
-startBot(); // 🚀 starts the bot
+startBot(); // Start the bot
