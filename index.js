@@ -642,9 +642,33 @@ Owner: .restart
     }
   }); // closes sock.ev.on("messages.upsert")
 
-  // Graceful exit
-  process.on("SIGINT", () => { console.log("SIGINT"); process.exit(0); });
-  process.on("SIGTERM", () => { console.log("SIGTERM"); process.exit(0); });
-}
+          // --- .sticker (reply to image) ---
+        if (cmd === ".sticker") {
+          if (!quoted || !quoted.imageMessage) return reply("⚠️ Reply to an image with .sticker");
+          try {
+            const stream = await downloadContentFromMessage(quoted.imageMessage, "image");
+            const bufferArray = [];
+            for await (const chunk of stream) bufferArray.push(chunk);
+            const buffer = Buffer.concat(bufferArray);
 
-startBot();
+            await sock.sendMessage(from, { sticker: buffer });
+            await reply("✅ Sticker created successfully!");
+          } catch (e) {
+            console.error(".sticker error:", e.message);
+            await reply("❌ Failed to create sticker.");
+          }
+        }
+
+      } // closes for loop
+    } catch (e) {
+      console.error("command handler error", e && e.message);
+    }
+  }); // closes sock.ev.on("messages.upsert")
+
+  // Graceful exit — makes sure bot shuts down cleanly
+  process.on("SIGINT", () => { console.log("SIGINT detected. Exiting..."); process.exit(0); });
+  process.on("SIGTERM", () => { console.log("SIGTERM detected. Exiting..."); process.exit(0); });
+
+} // closes startBot function
+
+startBot(); // 🚀 starts the bot
